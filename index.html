@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ADHOM AI Creative Studio</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=swap" rel="stylesheet">
+    
+    <style>
+      :root {
+        --accent-color: #4f46e5; /* Indigo 600 */
+        --panel-bg: #0A0A0A;
+        --border-color: rgba(255, 255, 255, 0.07);
+        --text-light: #F8FAFC;
+        --text-muted: #94A3B8;
+        --text-disabled: #475569;
+      }
+
+      body {
+        font-family: 'Outfit', sans-serif;
+        color: var(--text-light);
+        background-color: #020617; /* A very dark blue */
+        position: relative;
+        overflow-x: hidden; /* Prevent horizontal scroll, allow vertical */
+      }
+      
+      body::before {
+        content: '';
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: radial-gradient(circle at 25% 25%, rgba(79, 70, 229, 0.2), transparent 40%),
+                    radial-gradient(circle at 75% 75%, rgba(79, 70, 229, 0.15), transparent 40%);
+        animation: background-pan 30s linear infinite;
+        z-index: -1;
+      }
+
+      /* Custom Scrollbars */
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.2);
+      }
+
+       @keyframes fade-in-scale {
+        from { transform: scale(0.95); opacity: 0; }
+        to { transform: scale(1); opacity: 1; }
+      }
+      
+      @keyframes button-glow {
+        0%, 100% { box-shadow: 0 0 20px 0px rgba(79, 70, 229, 0.5), 0 0 5px 0px rgba(79, 70, 229, 0.5); }
+        50% { box-shadow: 0 0 30px 5px rgba(79, 70, 229, 0.6), 0 0 10px 0px rgba(79, 70, 229, 0.6); }
+      }
+      .animate-button-glow {
+        animation: button-glow 2.5s ease-in-out infinite;
+      }
+      
+      /* Custom slider styles */
+      input[type="range"] {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 100%;
+        height: 6px;
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 3px;
+        outline: none;
+        border: 1px solid var(--border-color);
+      }
+      input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 20px;
+        height: 20px;
+        background: var(--text-light);
+        cursor: pointer;
+        border-radius: 50%;
+        border: 4px solid var(--accent-color);
+        box-shadow: 0 0 12px 0px var(--accent-color);
+        transition: transform 0.2s, box-shadow 0.2s;
+      }
+      input[type="range"]:hover::-webkit-slider-thumb {
+        box-shadow: 0 0 20px 2px var(--accent-color);
+      }
+      input[type="range"]:active::-webkit-slider-thumb {
+        transform: scale(1.1);
+      }
+      input[type="range"]::-moz-range-thumb {
+        width: 20px;
+        height: 20px;
+        background: var(--text-light);
+        cursor: pointer;
+        border-radius: 50%;
+        border: 4px solid var(--accent-color);
+        box-shadow: 0 0 12px 0px var(--accent-color);
+        transition: transform 0.2s, box-shadow 0.2s;
+      }
+       input[type="range"]:hover::-moz-range-thumb {
+        box-shadow: 0 0 20px 2px var(--accent-color);
+      }
+      input[type="range"]:active::-moz-range-thumb {
+        transform: scale(1.1);
+      }
+      
+      @keyframes background-pan {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+      }
+      .bg-grid-pattern {
+        background-image:
+          linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+      }
+      
+      @keyframes viewer-gradient-pan {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+      }
+      .animated-viewer-bg {
+        background: linear-gradient(135deg, #0D1024 0%, #17163B 50%, #111827 100%);
+        background-size: 200% 200%;
+        animation: viewer-gradient-pan 25s ease infinite;
+      }
+
+      /* Welcome animation styles */
+      @keyframes beam-one {
+        0% { transform: translate(-150%, -150%) rotate(45deg); opacity: 0; }
+        20% { opacity: 0.3; }
+        80% { opacity: 0.3; }
+        100% { transform: translate(150%, 150%) rotate(45deg); opacity: 0; }
+      }
+      @keyframes beam-two {
+        0% { transform: translate(150%, -150%) rotate(-45deg); opacity: 0; }
+        20% { opacity: 0.3; }
+        80% { opacity: 0.3; }
+        100% { transform: translate(-150%, 150%) rotate(-45deg); opacity: 0; }
+      }
+      @keyframes icon-glow {
+        0%, 100% { filter: drop-shadow(0 0 10px var(--accent-color)); }
+        50% { filter: drop-shadow(0 0 20px var(--accent-color)); }
+      }
+      .animate-icon-glow {
+        animation: icon-glow 3s ease-in-out infinite;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.1.1",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.1.1/",
+    "react/": "https://aistudiocdn.com/react@^19.1.1/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.21.0"
+  }
+}
+</script>
+</head>
+  <body class="text-gray-100">
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
