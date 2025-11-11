@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { ExportSettings, ImageFile, UpscaleTarget } from '../types';
 import { ExportIcon, SparklesIcon, ArrowsExpandIcon, DownloadIcon } from './Icons';
@@ -42,7 +43,7 @@ const ControlPanel: React.FC<ControlPanelProps> = (props) => {
 
     return (
         <div className="flex flex-col h-full">
-            <div className="flex-grow overflow-y-auto p-4 space-y-4">
+            <div className="flex-grow overflow-y-auto p-3 sm:p-4 space-y-3 sm:space-y-4">
                 <ImageUploader title="1. Upload Product Image" description="The main subject of your final image." onImageChange={setProductImage} image={productImage} />
                 <ImageUploader title="2. Upload Style Reference (Optional)" description="The AI will match this image's mood and lighting." onImageChange={setReferenceImage} image={referenceImage} />
                 <div>
@@ -86,7 +87,7 @@ const ControlPanel: React.FC<ControlPanelProps> = (props) => {
             </div>
             
             {/* Generation Controls Footer */}
-            <div className="p-4 flex-shrink-0 mt-auto border-t border-[var(--border-color)]">
+            <div className="p-3 sm:p-4 flex-shrink-0 mt-auto border-t border-[var(--border-color)]">
                 <div className="space-y-3">
                     <button
                         onClick={onGenerate}

@@ -115,6 +115,16 @@
       input[type="range"]:active::-moz-range-thumb {
         transform: scale(1.1);
       }
+
+      /* Toggle Switch styles */
+      .toggle-checkbox:checked {
+          transform: translateX(100%);
+          background-color: white;
+          border-color: var(--accent-color);
+      }
+      .toggle-checkbox:checked + .toggle-label {
+          background-color: var(--accent-color);
+      }
       
       @keyframes background-pan {
         0% { background-position: 0% 50%; }
