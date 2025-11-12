@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
     ImageFile, CameraPreset, LightingPreset, MockupPreset, ManipulationPreset, RetouchPreset, PeopleRetouchPreset, 
@@ -7,7 +8,7 @@ import {
 } from './types';
 import { 
     CAMERA_PRESETS, LIGHTING_PRESETS, MOCKUP_PRESETS, MANIPULATION_PRESETS, 
-    RETOUCH_PRESETS, PEOPLE_RETOUCH_PRESETS
+    RETOUCH_PRESETS, PEOPLE_RETOUCH_PRESETS, DEFAULT_PORTRAIT_SETTINGS
 } from './constants';
 import ControlPanel from './components/ControlPanel';
 import GenerationPanel from './components/GenerationPanel';
@@ -172,65 +173,7 @@ const App: React.FC = () => {
     const [isAnalyzingPortrait, setIsAnalyzingPortrait] = useState<boolean>(false);
     const [aiProfile, setAiProfile] = useState<AiProfile>('off');
     
-    const DEFAULT_SETTINGS: Record<AiProfile, PortraitRetouchSettings> = {
-        'male': {
-            blemishRemoval: true, skinSmoothing: 10, skinTexture: 70, wrinkleReduction: 15, shineRemoval: 30,
-            eyeEnhancement: true, darkCircleReduction: 25, teethWhitening: 20,
-            jawSculpt: 20, noseSculpt: 0, eyeSculpt: 0,
-            flyawayHairRemoval: 20, hairShineEnhancement: 15, clothingWrinkleRemoval: true,
-            lightingCorrection: true, colorCastFix: true, backgroundEnhancement: 'keep',
-            colorGrading: 'none', filmGrain: 5,
-        },
-        'female': {
-            blemishRemoval: true, skinSmoothing: 40, skinTexture: 30, wrinkleReduction: 30, shineRemoval: 40,
-            eyeEnhancement: true, darkCircleReduction: 40, teethWhitening: 30,
-            jawSculpt: 15, noseSculpt: 10, eyeSculpt: 5,
-            flyawayHairRemoval: 50, hairShineEnhancement: 40, clothingWrinkleRemoval: true,
-            lightingCorrection: true, colorCastFix: true, backgroundEnhancement: 'blur',
-            colorGrading: 'warm', filmGrain: 10,
-        },
-        'child': {
-            blemishRemoval: true, skinSmoothing: 0, skinTexture: 0, wrinkleReduction: 0, shineRemoval: 10,
-            eyeEnhancement: false, darkCircleReduction: 5, teethWhitening: 10,
-            jawSculpt: 0, noseSculpt: 0, eyeSculpt: 0,
-            flyawayHairRemoval: 10, hairShineEnhancement: 5, clothingWrinkleRemoval: true,
-            lightingCorrection: true, colorCastFix: true, backgroundEnhancement: 'keep',
-            colorGrading: 'none', filmGrain: 0,
-        },
-        'senior': {
-            blemishRemoval: true, skinSmoothing: 15, skinTexture: 60, wrinkleReduction: 40, shineRemoval: 20,
-            eyeEnhancement: true, darkCircleReduction: 30, teethWhitening: 25,
-            jawSculpt: 5, noseSculpt: 0, eyeSculpt: 0,
-            flyawayHairRemoval: 30, hairShineEnhancement: 20, clothingWrinkleRemoval: true,
-            lightingCorrection: true, colorCastFix: true, backgroundEnhancement: 'keep',
-            colorGrading: 'warm', filmGrain: 5,
-        },
-        'professional': {
-            blemishRemoval: true, skinSmoothing: 25, skinTexture: 50, wrinkleReduction: 20, shineRemoval: 50,
-            eyeEnhancement: true, darkCircleReduction: 30, teethWhitening: 40,
-            jawSculpt: 10, noseSculpt: 0, eyeSculpt: 0,
-            flyawayHairRemoval: 40, hairShineEnhancement: 25, clothingWrinkleRemoval: true,
-            lightingCorrection: true, colorCastFix: true, backgroundEnhancement: 'desaturate',
-            colorGrading: 'none', filmGrain: 0,
-        },
-        'glamour': {
-            blemishRemoval: true, skinSmoothing: 60, skinTexture: 20, wrinkleReduction: 50, shineRemoval: 20,
-            eyeEnhancement: true, darkCircleReduction: 60, teethWhitening: 50,
-            jawSculpt: 30, noseSculpt: 15, eyeSculpt: 10,
-            flyawayHairRemoval: 60, hairShineEnhancement: 60, clothingWrinkleRemoval: true,
-            lightingCorrection: true, colorCastFix: true, backgroundEnhancement: 'blur',
-            colorGrading: 'cinematic', filmGrain: 15,
-        },
-        'off': {
-            blemishRemoval: false, skinSmoothing: 0, skinTexture: 0, wrinkleReduction: 0, shineRemoval: 0,
-            eyeEnhancement: false, darkCircleReduction: 0, teethWhitening: 0,
-            jawSculpt: 0, noseSculpt: 0, eyeSculpt: 0,
-            flyawayHairRemoval: 0, hairShineEnhancement: 0, clothingWrinkleRemoval: false,
-            lightingCorrection: false, colorCastFix: false, backgroundEnhancement: 'keep',
-            colorGrading: 'none', filmGrain: 0,
-        }
-    };
-    const [portraitSettings, setPortraitSettings] = useState<PortraitRetouchSettings>(DEFAULT_SETTINGS.off);
+    const [portraitSettings, setPortraitSettings] = useState<PortraitRetouchSettings>(DEFAULT_PORTRAIT_SETTINGS.off);
 
     // Shared states
     const [exportSettings, setExportSettings] = useState<ExportSettings>({ aspectRatio: '1:1', transparent: false });
@@ -260,6 +203,20 @@ const App: React.FC = () => {
             window.removeEventListener('offline', handleOffline);
         };
     }, []);
+
+    // This effect handles closing the upscale menu when clicking outside of it.
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (upscaleMenuRef.current && !upscaleMenuRef.current.contains(event.target as Node)) {
+                setIsUpscaleMenuOpen(false);
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [upscaleMenuRef]);
     
     const handleGenerateRetouch = useCallback(async (profile: AiProfile, settings: PortraitRetouchSettings, prompt: string) => {
         if (!portraitImage || !isOnline) return;
@@ -301,7 +258,7 @@ const App: React.FC = () => {
                     setAiProfile(newProfile);
 
                     if (newProfile !== 'off') {
-                        const newSettings = DEFAULT_SETTINGS[newProfile];
+                        const newSettings = DEFAULT_PORTRAIT_SETTINGS[newProfile];
                         setPortraitSettings(newSettings);
                         await handleGenerateRetouch(newProfile, newSettings, '');
                     }
@@ -323,12 +280,12 @@ const App: React.FC = () => {
     
     useEffect(() => {
         if (portraitImage) { // Only change settings if there's an image
-            setPortraitSettings(DEFAULT_SETTINGS[aiProfile]);
+            setPortraitSettings(DEFAULT_PORTRAIT_SETTINGS[aiProfile]);
             if (aiProfile === 'off') {
                 setRetouchedImage(null);
             }
         }
-    }, [aiProfile]);
+    }, [aiProfile, portraitImage]);
 
     const handleGetSuggestions = async () => {
         if (!productImage) return;
@@ -557,6 +514,51 @@ const App: React.FC = () => {
         setLightingSettings(DEFAULT_LIGHTING_SETTINGS);
     }, []);
 
+    const handleResetApp = useCallback(() => {
+        // Stop any ongoing processes
+        setIsLoading(false);
+        setIsUpscaling(false);
+        setIsGeneratingSuggestions(false);
+        setIsGeneratingCameraSuggestions(false);
+        setIsAnalyzingPortrait(false);
+
+        // Close any modals/menus
+        setIsSuggestionsModalOpen(false);
+        setIsUpscaleMenuOpen(false);
+        
+        // Reset mode to default
+        setMode('studio');
+
+        // Reset image states
+        setStudioGeneratedImage(null);
+        setGenerationGeneratedImages(null);
+        setRetouchedImage(null);
+
+        // Reset Studio Mode states
+        setProductImage(null);
+        setReferenceImage(null);
+        setCustomPrompt('');
+        setCreativeSuggestions([]);
+        setCameraSuggestions([]);
+
+        // Reset Fine-Tune States using existing helper
+        resetStudioControls();
+
+        // Reset Generation Mode states
+        setGenerationPrompt('');
+        setNegativePrompt('');
+        
+        // Reset Portrait Retouch Mode states
+        setPortraitImage(null);
+        setPortraitPrompt('');
+        setAiAnalysis(null);
+        setAiProfile('off');
+        setPortraitSettings(DEFAULT_PORTRAIT_SETTINGS.off);
+
+        // Reset Shared states
+        setExportSettings({ aspectRatio: '1:1', transparent: false });
+    }, [resetStudioControls]);
+
     const loadFromHistory = (item: HistoryItem) => {
         setExportSettings(item.exportSettings || { aspectRatio: '1:1', transparent: false });
 
@@ -621,22 +623,21 @@ const App: React.FC = () => {
     
     const socialLinks = (
         <>
-            <a href="#" className="p-2 rounded-full hover:bg-white/10 transform transition-all duration-200 hover:scale-110 hover:text-white" title="Instagram"><InstagramIcon className="w-5 h-5" /></a>
-            <a href="#" className="p-2 rounded-full hover:bg-white/10 transform transition-all duration-200 hover:scale-110 hover:text-white" title="Facebook"><FacebookIcon className="w-5 h-5" /></a>
-            <a href="#" className="p-2 rounded-full hover:bg-white/10 transform transition-all duration-200 hover:scale-110 hover:text-white" title="Behance"><BehanceIcon className="w-5 h-5" /></a>
-            <a href="#" className="p-2 rounded-full hover:bg-white/10 transform transition-all duration-200 hover:scale-110 hover:text-white" title="WhatsApp"><WhatsAppIcon className="w-5 h-5" /></a>
+            <a href="https://www.instagram.com/adham_oe" target="_blank" rel="noopener noreferrer" className="p-2 rounded-full hover:bg-white/10 transform transition-all duration-200 hover:scale-110 hover:text-white" title="Instagram"><InstagramIcon className="w-5 h-5" /></a>
+            <a href="https://www.facebook.com/adhamosama.oe" target="_blank" rel="noopener noreferrer" className="p-2 rounded-full hover:bg-white/10 transform transition-all duration-200 hover:scale-110 hover:text-white" title="Facebook"><FacebookIcon className="w-5 h-5" /></a>
+            <a href="https://www.behance.net/Adham-Osama" target="_blank" rel="noopener noreferrer" className="p-2 rounded-full hover:bg-white/10 transform transition-all duration-200 hover:scale-110 hover:text-white" title="Behance"><BehanceIcon className="w-5 h-5" /></a>
         </>
     );
 
     return (
         <div className="min-h-screen lg:h-screen flex flex-col">
             <header className="relative flex-shrink-0 p-3 sm:p-4 flex justify-between items-center bg-black/30 backdrop-blur-xl border-b border-[var(--border-color)] z-30">
-                <a href="#" className="flex items-center gap-3 group">
+                <button onClick={handleResetApp} aria-label="Reset application to default state" className="flex items-center gap-3 group">
                     <LogoIcon className="w-8 h-8 text-[var(--accent-color)] transition-transform duration-300 ease-in-out group-hover:rotate-[15deg] group-hover:scale-110" />
                     <h1 className="text-xl sm:text-2xl font-bold from-slate-200 to-slate-400 bg-gradient-to-r bg-clip-text text-transparent tracking-wide">
                         ADHOM AI <span className="font-light hidden sm:inline">Creative Studio</span>
                     </h1>
-                </a>
+                </button>
 
                 {/* Desktop Mode Switcher */}
                 <div className="hidden lg:flex items-center gap-2 p-1 bg-black/20 rounded-full border border-[var(--border-color)]">

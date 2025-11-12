@@ -1,5 +1,5 @@
 import React from 'react';
-import { CameraPreset, LightingPreset, MockupPreset, ManipulationPreset, RetouchPreset, PeopleRetouchPreset, AspectRatio } from './types';
+import { CameraPreset, LightingPreset, MockupPreset, ManipulationPreset, RetouchPreset, PeopleRetouchPreset, AspectRatio, AiProfile, PortraitRetouchSettings } from './types';
 import { CameraIcon, SunIcon, CubeTransparentIcon, WandIcon, ArrowsExpandIcon, LayersIcon, SlashIcon, UserIcon } from './components/Icons';
 
 export const CAMERA_PRESETS: CameraPreset[] = [
@@ -100,7 +100,6 @@ export const RETOUCH_PRESETS: RetouchPreset[] = [
     { id: 'specular-control', name: 'Specular Control', description: 'Adjust highlights: reduce burnout, enhance metal/glass reflections.', icon: <WandIcon className="w-6 h-6" /> },
     { id: 'texture-pop', name: 'Texture Pop', description: 'Enhance matte, leather, or rubber textures with micro-contrast.', icon: <WandIcon className="w-6 h-6" /> },
     { id: 'micro-detail-preservation', name: 'Micro-Detail Preservation', description: 'Uses advanced techniques to protect and retain fine textures (fabric weave, brushed metal, skin pores) during all retouching and manipulation steps.', icon: <WandIcon className="w-6 h-6" /> },
-    // FIX: Corrected a typo in the description string ("scratch'es" to "scratches") that was causing a syntax error.
     { id: 'polish', name: 'Plastic/Metal Polish', description: 'Reduce micro-scratches and unify surface glossiness.', icon: <WandIcon className="w-6 h-6" /> },
     { id: 'label-warp', name: 'Label Warp Fix', description: 'Correct sticker distortions, perspective, and cylindrical curvature.', icon: <WandIcon className="w-6 h-6" /> },
     { id: 'color-master', name: 'Color Mastering', description: 'Apply correct white balance, general toning, and match Pantone/Brand colors.', icon: <WandIcon className="w-6 h-6" /> },
@@ -121,4 +120,102 @@ export const EXPORT_ASPECT_RATIOS: { value: AspectRatio; label: string }[] = [
     { value: '1:1', label: 'Square' },
     { value: '3:2', label: 'Classic Photo' },
     { value: '16:9', label: 'Landscape (HD)' },
+];
+
+export const DEFAULT_PORTRAIT_SETTINGS: Record<AiProfile, PortraitRetouchSettings> = {
+    'male': {
+        blemishRemoval: true, skinSmoothing: 10, skinTexture: 70, wrinkleReduction: 15, shineRemoval: 30,
+        eyeEnhancement: true, darkCircleReduction: 25, teethWhitening: 20,
+        jawSculpt: 20, noseSculpt: 0, eyeSculpt: 0,
+        flyawayHairRemoval: 20, hairShineEnhancement: 15, clothingWrinkleRemoval: true,
+        lightingCorrection: true, colorCastFix: true, backgroundEnhancement: 'keep',
+        colorGrading: 'none', filmGrain: 5,
+    },
+    'female': {
+        blemishRemoval: true, skinSmoothing: 40, skinTexture: 30, wrinkleReduction: 30, shineRemoval: 40,
+        eyeEnhancement: true, darkCircleReduction: 40, teethWhitening: 30,
+        jawSculpt: 15, noseSculpt: 10, eyeSculpt: 5,
+        flyawayHairRemoval: 50, hairShineEnhancement: 40, clothingWrinkleRemoval: true,
+        lightingCorrection: true, colorCastFix: true, backgroundEnhancement: 'blur',
+        colorGrading: 'warm', filmGrain: 10,
+    },
+    'child': {
+        blemishRemoval: true, skinSmoothing: 0, skinTexture: 0, wrinkleReduction: 0, shineRemoval: 10,
+        eyeEnhancement: false, darkCircleReduction: 5, teethWhitening: 10,
+        jawSculpt: 0, noseSculpt: 0, eyeSculpt: 0,
+        flyawayHairRemoval: 10, hairShineEnhancement: 5, clothingWrinkleRemoval: true,
+        lightingCorrection: true, colorCastFix: true, backgroundEnhancement: 'keep',
+        colorGrading: 'none', filmGrain: 0,
+    },
+    'senior': {
+        blemishRemoval: true, skinSmoothing: 15, skinTexture: 60, wrinkleReduction: 40, shineRemoval: 20,
+        eyeEnhancement: true, darkCircleReduction: 30, teethWhitening: 25,
+        jawSculpt: 5, noseSculpt: 0, eyeSculpt: 0,
+        flyawayHairRemoval: 30, hairShineEnhancement: 20, clothingWrinkleRemoval: true,
+        lightingCorrection: true, colorCastFix: true, backgroundEnhancement: 'keep',
+        colorGrading: 'warm', filmGrain: 5,
+    },
+    'professional': {
+        blemishRemoval: true, skinSmoothing: 25, skinTexture: 50, wrinkleReduction: 20, shineRemoval: 50,
+        eyeEnhancement: true, darkCircleReduction: 30, teethWhitening: 40,
+        jawSculpt: 10, noseSculpt: 0, eyeSculpt: 0,
+        flyawayHairRemoval: 40, hairShineEnhancement: 25, clothingWrinkleRemoval: true,
+        lightingCorrection: true, colorCastFix: true, backgroundEnhancement: 'desaturate',
+        colorGrading: 'none', filmGrain: 0,
+    },
+    'glamour': {
+        blemishRemoval: true, skinSmoothing: 60, skinTexture: 20, wrinkleReduction: 50, shineRemoval: 20,
+        eyeEnhancement: true, darkCircleReduction: 60, teethWhitening: 50,
+        jawSculpt: 30, noseSculpt: 15, eyeSculpt: 10,
+        flyawayHairRemoval: 60, hairShineEnhancement: 60, clothingWrinkleRemoval: true,
+        lightingCorrection: true, colorCastFix: true, backgroundEnhancement: 'blur',
+        colorGrading: 'cinematic', filmGrain: 15,
+    },
+    'off': {
+        blemishRemoval: false, skinSmoothing: 0, skinTexture: 0, wrinkleReduction: 0, shineRemoval: 0,
+        eyeEnhancement: false, darkCircleReduction: 0, teethWhitening: 0,
+        jawSculpt: 0, noseSculpt: 0, eyeSculpt: 0,
+        flyawayHairRemoval: 0, hairShineEnhancement: 0, clothingWrinkleRemoval: false,
+        lightingCorrection: false, colorCastFix: false, backgroundEnhancement: 'keep',
+        colorGrading: 'none', filmGrain: 0,
+    }
+};
+
+// FIX: Add missing PROMPT_ENHANCER_KEYWORDS export
+export const PROMPT_ENHANCER_KEYWORDS: { category: string; keywords: string[] }[] = [
+    {
+        category: 'Style & Medium',
+        keywords: [
+            'Photorealistic', 'Digital Painting', 'Concept Art', 'Oil Painting', 'Watercolor',
+            'Illustration', 'Anime', 'Manga', 'Vector Art', 'Pixel Art', 'Low Poly', 'Claymation'
+        ]
+    },
+    {
+        category: 'Quality & Detail',
+        keywords: [
+            'Highly Detailed', '8K', '4K', 'Intricate Details', 'Sharp Focus',
+            'Unreal Engine', 'Octane Render', 'Masterpiece', 'Award-Winning Photography'
+        ]
+    },
+    {
+        category: 'Lighting',
+        keywords: [
+            'Cinematic Lighting', 'Golden Hour', 'Blue Hour', 'Dramatic Lighting', 'Studio Lighting',
+            'Soft Light', 'Hard Light', 'Rim Lighting', 'Backlight', 'Neon', 'Volumetric Lighting'
+        ]
+    },
+    {
+        category: 'Composition & Angle',
+        keywords: [
+            'Wide Angle Shot', 'Macro Shot', 'Close-up', 'Portrait', 'Full Body Shot',
+            'Dynamic Angle', 'Low Angle', 'High Angle', 'Birds-eye view'
+        ]
+    },
+    {
+        category: 'Atmosphere & Mood',
+        keywords: [
+            'Ethereal', 'Moody', 'Nostalgic', 'Serene', 'Chaotic',
+            'Mysterious', 'Energetic', 'Whimsical', 'Dreamlike'
+        ]
+    }
 ];

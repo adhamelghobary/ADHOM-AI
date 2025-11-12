@@ -86,19 +86,12 @@ export interface HistoryItem {
     negativePrompt?: string;
 }
 
-
-export interface PromptSuggestion {
-    title: string;
-    prompt: string;
-}
-
 export interface SuggestionConcept {
     concept_title: string;
     prompt_text: string;
     settings_json: Partial<ChosenSettings>;
 }
 
-export type RetouchIntensity = 'natural' | 'studio-pro' | 'glamour';
 export type AiProfile = 'male' | 'female' | 'child' | 'senior' | 'professional' | 'glamour' | 'off';
 
 export interface AiAnalysisReport {

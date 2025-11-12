@@ -44,7 +44,6 @@ const handleGeminiError = (error: unknown, context: string): never => {
     throw new Error(message);
 };
 
-
 const buildControlSchema = () => {
   const schema = {
     Camera: CAMERA_PRESETS.filter(p => p.id !== 'none').map(p => p.name),
