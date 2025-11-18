@@ -33,14 +33,6 @@ export interface RetouchPreset extends Preset {
     // no extra fields
 }
 
-export interface IllustrationStylePreset extends Preset {
-    // no extra fields
-}
-
-export interface DesignStylePreset extends Preset {
-    // no extra fields
-}
-
 export type AspectRatio = '9:16' | '4:5' | '1:1' | '3:2' | '16:9';
 
 export interface ExportSettings {
@@ -148,17 +140,8 @@ export interface PortraitRetouchSettings {
 export interface DirectorResult {
     id: string;
     shotLabel: string;
-    timestamp: number;
     image: {
         base64: string;
         mimeType: string;
     };
-}
-
-export interface VectorResult {
-    rasterImage: {
-        base64: string;
-        mimeType: string;
-    };
-    svgCode?: string;
 }

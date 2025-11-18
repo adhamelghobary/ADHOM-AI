@@ -1,23 +1,58 @@
+
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { ImageFile, UpscaleTarget, ChosenSettings, SuggestionConcept, ExportSettings, AspectRatio, HistoryItem, PortraitRetouchSettings, AiProfile, AiAnalysisReport, CameraSettings, LightingSettings } from '../types';
 import { CAMERA_PRESETS, LIGHTING_PRESETS, MOCKUP_PRESETS, MANIPULATION_PRESETS, RETOUCH_PRESETS, PEOPLE_RETOUCH_PRESETS } from '../constants';
 
 const genAI = new GoogleGenAI({ apiKey: process.env.API_KEY! });
 
-/**
- * A centralized error handler for Gemini API calls.
- * It parses the error message to provide more specific feedback, especially for rate limiting.
- * @param error The caught error object.
- * @param context A string describing the operation that failed (e.g., 'image generation').
- * @throws An error with a user-friendly message.
- */
+// ============================================================================
+// 1. THE AI ART DIRECTOR (SYSTEM INSTRUCTION)
+// ============================================================================
+
+const DIRECTOR_SYSTEM_INSTRUCTION = `
+Role: You are the "AI Art Director" for a professional product photography studio.
+Task: You will receive a "briefing file" (JSON) containing the product description, category, user text, style ref, and camera angle. Your job is to output the "Final Order" (Positive and Negative prompts) for the image generator.
+
+Your Thinking Process (The Logic):
+
+1. **Check the Creative Direction Text (user_scene_request)**
+   - **Case A: Box is Empty ("")**
+     - You MUST invent a professional scene from scratch based on the **Product Category**.
+     - Example: If "Beverage", invent "A refreshing scene with water splashes and ice".
+     - This becomes the "Core Idea".
+   - **Case B: Box is Full**
+     - Respect the user's vision. The text they wrote is the "Core Idea".
+
+2. **Weave All Threads Together (The "Director" Phase)**
+   - Combine the "Core Idea" with:
+     - **Product Description** (subject_description)
+     - **Camera Angle** (camera_angle_selection) - GIVE PRIORITY to this if it conflicts with the Core Idea (e.g., user chose "Macro").
+     - **Style Description** (style_ref_description)
+
+3. **Add the "Professional Polish"**
+   - Add magic words: "8K quality, professional commercial photography, hyperrealistic, cinematic lighting, sharp focus".
+
+4. **Define the "Don'ts" (Negative Prompt)**
+   - List things to avoid: "blurry, cartoon, deformed, low quality, watermark, text, ugly, distorted, drawing, painting, illustration, 3D render, CGI, anime, sketch".
+
+Output Format:
+Return a SINGLE JSON object:
+{
+  "positive_prompt": "The final positive command...",
+  "negative_prompt": "The final negative command..."
+}
+`;
+
+// ============================================================================
+// ERROR HANDLING
+// ============================================================================
+
 const handleGeminiError = (error: unknown, context: string): never => {
     console.error(`Error during ${context}:`, error);
 
     let message = `An unexpected error occurred during ${context}.`;
 
     if (error instanceof Error && error.message) {
-        // The Gemini SDK often embeds a JSON error object as a string in the message
         try {
             const errorJson = JSON.parse(error.message);
             const geminiError = errorJson.error;
@@ -26,23 +61,202 @@ const handleGeminiError = (error: unknown, context: string): never => {
                 if (geminiError.status === 'RESOURCE_EXHAUSTED' || geminiError.code === 429) {
                     message = "API Rate Limit Exceeded. You've used up your current quota. Please check your plan and billing details.";
                 } else if (geminiError.message) {
-                    // Use the specific message from the API if available
                     message = `AI Error: ${geminiError.message}`;
                 } else {
                     message = `An API error occurred: ${geminiError.status || 'Unknown'}`;
                 }
             } else {
-                 // If parsing works but there's no .error, it might be a different structured error. Use the original message.
                  message = error.message;
             }
         } catch (e) {
-            // If the message is not a JSON string, use it directly as it's likely informative.
             message = error.message;
         }
     }
     
     throw new Error(message);
 };
+
+// ============================================================================
+// 2. PROMPT SYNTHESIS (DIRECTOR MODE)
+// ============================================================================
+
+export const generateDirectorPrompts = async (
+    productImage: ImageFile,
+    referenceImage: ImageFile | null,
+    customPrompt: string,
+    finalSettings: ChosenSettings
+): Promise<{ positive_prompt: string; negative_prompt: string }> => {
+    const model = 'gemini-2.5-pro'; // Using Pro for high-reasoning prompt engineering
+
+    // Build technical strings
+    let cameraSelection = finalSettings.Camera !== 'None' ? finalSettings.Camera : "None";
+    if (finalSettings.cameraDetails && finalSettings.Camera !== 'None') {
+        const { focalLength, aperture, shutterSpeed } = finalSettings.cameraDetails;
+        cameraSelection += ` (${focalLength}mm, f/${aperture}, 1/${shutterSpeed}s)`;
+    }
+    
+    const styleSelection = referenceImage ? "Analyze the attached style reference image (Image 2)." : "None";
+    
+    // Prepare the input object as per the system instruction's expectations
+    const inputs = {
+        subject_keyword: "[PRODUCT]",
+        subject_description: "Analyze the attached product image (Image 1) to describe the subject in detail.",
+        user_scene_request: customPrompt || "", // Pass empty string if empty, to trigger Case A
+        style_ref_description: styleSelection,
+        camera_angle_selection: cameraSelection
+    };
+
+    const prompt = `
+    Here are the inputs for your task:
+    ${JSON.stringify(inputs, null, 2)}
+    
+    **Instructions:**
+    1. Image 1 is the Product. Analyze it to populate 'subject_description'.
+    2. Image 2 (if provided) is the Style Reference. Analyze it to populate 'style_ref_description'.
+    3. Fulfill the "AI Art Director" role defined in your system instructions.
+    `;
+
+    const parts: any[] = [
+         { text: DIRECTOR_SYSTEM_INSTRUCTION },
+         { text: prompt },
+         { inlineData: { data: productImage.base64, mimeType: productImage.mimeType } }
+    ];
+    
+    if (referenceImage) {
+        parts.push({ inlineData: { data: referenceImage.base64, mimeType: referenceImage.mimeType } });
+    }
+
+    try {
+        const response = await genAI.models.generateContent({
+            model,
+            contents: { parts },
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        positive_prompt: { type: Type.STRING },
+                        negative_prompt: { type: Type.STRING },
+                    },
+                    required: ["positive_prompt", "negative_prompt"]
+                }
+            }
+        });
+        
+        return JSON.parse(response.text.trim());
+    } catch (error) {
+        console.warn("Director prompt synthesis failed, falling back to simple construction.", error);
+        return {
+            positive_prompt: `${customPrompt}, [PRODUCT], commercial photography, photorealistic, 8K`,
+            negative_prompt: "blurry, low quality, illustration, 3D render, deformed"
+        };
+    }
+};
+
+// ============================================================================
+// 3. THE EXECUTION ENGINE
+// ============================================================================
+
+/**
+ * Executes the virtual shoot using the synthesized prompts.
+ */
+export const executeVirtualShoot = async (
+    productImage: ImageFile,
+    referenceImage: ImageFile | null,
+    prompts: { positive_prompt: string, negative_prompt: string },
+    exportSettings: ExportSettings
+): Promise<{ base64: string; mimeType: string } | null> => {
+    const model = 'gemini-2.5-flash-image';
+
+    // 1. Replace the [PRODUCT] token for Gemini's natural language understanding
+    const finalPositivePrompt = prompts.positive_prompt.replace(/\[PRODUCT\]/g, "the product shown in the first image");
+
+    // 2. Construct the final instruction for the image model
+    // Gemini Flash Image handles positive text instructions best. We append negative constraints.
+    const fullPrompt = `
+    **INSTRUCTIONS:**
+    ${finalPositivePrompt}
+    
+    **CONSTRAINTS (AVOID):**
+    ${prompts.negative_prompt}
+    
+    **OUTPUT REQUIREMENTS:**
+    - Aspect Ratio: ${exportSettings.aspectRatio}
+    ${exportSettings.transparent ? '- Background: Transparent (PNG)' : '- Background: Opaque'}
+    - Quality: Photorealistic, High Fidelity
+    `;
+
+    const parts: any[] = [
+        { text: fullPrompt },
+        { inlineData: { data: productImage.base64, mimeType: productImage.mimeType } }
+    ];
+    
+    if (referenceImage) {
+        parts.push({ inlineData: { data: referenceImage.base64, mimeType: referenceImage.mimeType } });
+    }
+
+    try {
+        const response = await genAI.models.generateContent({
+            model,
+            contents: { parts },
+            config: { responseModalities: [Modality.IMAGE] },
+        });
+
+        // Improve Error Handling for blocked generation
+        if (response.candidates?.[0]?.finishReason && response.candidates[0].finishReason !== 'STOP') {
+             const reason = response.candidates[0].finishReason;
+             // console.warn(`Image generation blocked. Reason: ${reason}`);
+             throw new Error(`Image generation blocked. Reason: ${reason}`);
+        }
+        
+        for (const part of response.candidates?.[0]?.content?.parts || []) {
+            if (part.inlineData) {
+                const mimeType = exportSettings.transparent ? 'image/png' : part.inlineData.mimeType;
+                return { base64: part.inlineData.data, mimeType };
+            }
+        }
+        
+        throw new Error("Generation succeeded, but no image data was returned. The model may have refused the prompt due to safety or complexity constraints.");
+    } catch (error) {
+        handleGeminiError(error, 'virtual shoot execution');
+        return null;
+    }
+};
+
+// ============================================================================
+// MAIN ORCHESTRATOR
+// ============================================================================
+
+export const generateFinalImage = async (
+    productImage: ImageFile,
+    referenceImage: ImageFile | null,
+    customPrompt: string,
+    finalSettings: ChosenSettings,
+    exportSettings: ExportSettings
+): Promise<{ base64: string; mimeType: string } | null> => {
+    
+    // Step 1: AI Art Director Synthesis
+    // Creates the perfect positive and negative prompts based on all inputs
+    const directorPrompts = await generateDirectorPrompts(
+        productImage,
+        referenceImage,
+        customPrompt,
+        finalSettings
+    );
+
+    // Step 2: Execute the Virtual Shoot
+    return await executeVirtualShoot(
+        productImage, 
+        referenceImage, 
+        directorPrompts, 
+        exportSettings
+    );
+};
+
+
+// ============================================================================
+// HELPERS & OTHER SERVICES
+// ============================================================================
 
 const buildControlSchema = () => {
   const schema = {
@@ -69,8 +283,8 @@ export const generateCameraSuggestions = async (
     const prompt = `You are an expert product photographer and AI assistant. Your task is to suggest the best camera angles for a product shot.
 
 **Analysis Phase:**
-1.  **Analyze the Product Image:** Identify the product's key characteristics (e.g., shape, size, material, if it's tall like a bottle, flat like a book, etc.).
-2.  **Analyze the Creative Prompt:** Understand the user's desired mood and context from their prompt: "${customPrompt}".
+1.  **Analyze the Product Image:** Identify the product's key characteristics (e.g., shape, size, material).
+2.  **Analyze the Creative Prompt:** Understand the user's desired mood: "${customPrompt}".
 
 **Task:**
 Based on your analysis, choose up to 3 of the most suitable camera presets from the following list.
@@ -81,7 +295,7 @@ ${JSON.stringify(availablePresets, null, 2)}
 \`\`\`
 
 **Output Requirement:**
-Return a JSON array containing ONLY the string IDs of your top 3 recommended presets. For example: ["hero-45", "worms-eye", "macro-edge-detail"].`;
+Return a JSON array containing ONLY the string IDs of your top 3 recommended presets.`;
 
     const parts = [
         { inlineData: { data: productImage.base64, mimeType: productImage.mimeType } },
@@ -105,7 +319,6 @@ Return a JSON array containing ONLY the string IDs of your top 3 recommended pre
         if (Array.isArray(suggestions) && suggestions.every(item => typeof item === 'string')) {
             return suggestions;
         }
-        console.warn("Received non-array or invalid data for camera suggestions:", suggestions);
         return [];
     } catch (error) {
         handleGeminiError(error, 'camera angle suggestion generation');
@@ -119,8 +332,6 @@ export const generateImageWithImagen = async (
     exportSettings: ExportSettings
 ): Promise<Array<{ base64: string; mimeType: string }> | null> => {
     const model = 'imagen-4.0-generate-001';
-    
-    // Construct the prompt. The pipe and "negative prompt:" are common conventions.
     const fullPrompt = negativePrompt ? `${prompt} | negative prompt: ${negativePrompt}` : prompt;
 
     try {
@@ -140,10 +351,7 @@ export const generateImageWithImagen = async (
                 mimeType: imgData.image.mimeType || 'image/jpeg',
             }));
         }
-
-        console.error("No images found in Imagen response.", response);
         throw new Error("Generation succeeded, but the AI did not return any images.");
-
     } catch (error) {
         handleGeminiError(error, 'image generation with Imagen');
         return null;
@@ -153,42 +361,65 @@ export const generateImageWithImagen = async (
 export const generateCreativeSuggestions = async (
     productImage: ImageFile,
     referenceImage: ImageFile | null,
-    userDraft: string
+    userDraft: string,
+    cameraConstraint?: string
 ): Promise<SuggestionConcept[]> => {
-    const model = 'gemini-2.5-flash';
-    const hasStyle = !!referenceImage;
-    const hasDraft = userDraft.trim() !== '';
+    const model = 'gemini-2.5-pro'; // Use Pro for complex instruction following
     const controlSchema = buildControlSchema();
 
-    let scenarioDescription = '';
-    if (hasDraft && hasStyle) scenarioDescription = `**Scenario 1 (Full Input):** REFINE the user's idea by combining their draft prompt and the style reference into 3 professional, polished versions.`;
-    else if (!hasDraft && hasStyle) scenarioDescription = `**Scenario 2 (Product + Style):** MERGE the product and style by proposing 3 creative ideas that professionally apply the style reference to the product.`;
-    else if (hasDraft && !hasStyle) scenarioDescription = `**Scenario 3 (Product + Text):** ENHANCE the user's idea by making their draft prompt 3x more professional and realistic for that specific product.`;
-    else scenarioDescription = `**Scenario 4 (Product Only):** INVENT 3 distinct, professional, and suitable advertising concepts for the product (e.g., one minimalist, one cinematic, one in-context).`;
+    const systemInstruction = `
+You are an expert AI Creative Director for product photography. 
+Your goal is to generate 3 distinct, high-quality, photorealistic image generation prompts based on the user's inputs.
 
-    const prompt = `You are an expert Art Director. Your goal is to generate 3 distinct creative concepts for a product photoshoot.
+**THE 4 SCENARIOS:**
+1.  **Product Only (Blank Canvas):** If "User Text" is empty and no Reference is provided.
+    - Suggest 3 proven commercial environments:
+      - **Option 1 (Minimalist):** Clean composition, studio lighting.
+      - **Option 2 (Lifestyle):** Product in a relevant real-world environment.
+      - **Option 3 (Creative/Dramatic):** Strong lighting, floating, or creative background.
+2.  **Product + Style Ref:** If a Reference Image is provided.
+    - Perform "Style Transfer". Merge the product into the style, lighting, and mood of the reference image.
+3.  **Product + Text:** If User Text is provided but no Reference.
+    - "Prompt Enhancer". Convert the simple user text into a professional, technically detailed prompt (add keywords like '8k', 'studio lighting').
+4.  **Full State (Product + Ref + Text):** If both Text and Reference are provided.
+    - "The Maestro". Show the [Product] in the [Text Scene] but applying the [Reference Mood/Lighting].
 
-**Analysis Phase:**
-1.  **Analyze Product Image [Image 1]:** Identify the main subject.
-2.  **Analyze Style Reference [Image 2] (if provided):** Extract key stylistic elements.
-3.  **Inputs for Task:**
-    *   **Product Image:** [Image 1] (Main subject)
-    *   **Style Reference:** ${hasStyle ? '[Image 2]' : 'Not provided'}
-    *   **User's Draft Prompt:** ${hasDraft ? `"${userDraft}"` : 'Not provided'}
-    *   **Control Schema:** ${JSON.stringify(controlSchema, null, 2)} (Possible options for presets)
+**MANDATORY RULES:**
+- **Camera Priority:** If "Camera Constraint" is provided (and not "None"), **YOU MUST** start every single suggestion prompt with this exact phrase. Example: "Hero-45 angle shot of..."
+- **Product Fidelity:** The product is the main subject. Do not describe it changing shape or logo.
+- **Professional Tone:** Use professional photography terminology.
 
-**Task:** Based on your analysis and the user's inputs, generate 3 distinct creative concepts. Follow the logic for the current scenario: ${scenarioDescription}
+**OUTPUT:**
+Return a JSON Array of exactly 3 suggestions.
+Each object must follow this schema:
+{
+  "concept_title": "Short Descriptive Title",
+  "prompt_text": "The full, detailed image generation prompt",
+  "settings_json": { ...populate with best matching presets from the provided schema... }
+}
+`;
 
-For each of the 3 concepts, you MUST generate four things:
-a) A \`concept_title\` (a very short, catchy name for the concept).
-b) A \`prompt_text\` (a short, inspiring, and professional creative direction for an image generator).
-c) A \`settings_json\` by selecting the best matching preset options for each key from the \`Control Schema\`.
-   - For 'Camera' and 'Mockup', select only one option. For others, you can select multiple comma-separated options. Use "None" if no option fits.
-d) Suggest detailed, professional values for \`cameraDetails\` and \`lightingDetails\` that align with your concept.
+    const prompt = `
+    **User Inputs:**
+    - User Text (Creative Direction): "${userDraft || ''}"
+    - Camera Constraint: "${cameraConstraint || 'None'}"
+    - Reference Image Provided: ${referenceImage ? 'Yes' : 'No'}
+    - Product Image Provided: Yes
 
-Return these 3 concepts as a JSON list.`;
+    **Control Schema for settings_json:**
+    ${JSON.stringify(controlSchema, null, 2)}
+    
+    **Task:**
+    1. Analyze the Product Image (Image 1) to understand the subject.
+    2. ${referenceImage ? 'Analyze the Reference Image (Image 2) to extract style/lighting.' : 'No reference image analysis needed.'}
+    3. Generate 3 suggestions based on the appropriate Scenario (1-4) defined in the system instructions.
+    `;
 
-    const parts: any[] = [{ inlineData: { mimeType: productImage.mimeType, data: productImage.base64 } }];
+    const parts: any[] = [
+        { text: systemInstruction },
+        { inlineData: { mimeType: productImage.mimeType, data: productImage.base64 } }
+    ];
+    
     if (referenceImage) {
         parts.push({ inlineData: { mimeType: referenceImage.mimeType, data: referenceImage.base64 } });
     }
@@ -244,117 +475,10 @@ Return these 3 concepts as a JSON list.`;
         });
         const jsonText = response.text.trim();
         const suggestions = JSON.parse(jsonText);
-        if (Array.isArray(suggestions)) {
-            return suggestions as SuggestionConcept[];
-        }
-        return [];
+        return Array.isArray(suggestions) ? suggestions as SuggestionConcept[] : [];
     } catch (error) {
         handleGeminiError(error, 'creative suggestion generation');
         return [];
-    }
-};
-
-const buildFinalPrompt = (
-    finalPrompt: string,
-    finalSettings: ChosenSettings,
-    exportSettings: ExportSettings,
-    hasReferenceImage: boolean
-): string => {
-    const sections: string[] = [
-        "You are an expert AI Art Director. Your task is to create a single, professional, photorealistic product photograph by intelligently synthesizing multiple inputs.",
-        `**Core Task:**\nGenerate one final image with a strict aspect ratio of ${exportSettings.aspectRatio}.`,
-        "**Analysis & Synthesis Instructions:**",
-        "1. **Analyze the Primary Subject Image:** This image contains the product that MUST be the hero of the final shot. Identify the product and its key features.",
-    ];
-
-    if (hasReferenceImage) {
-        sections.push("2. **Analyze the Style Reference Image:** This image is your primary inspiration for mood, color palette, lighting, and environment. Extract its essence.");
-    }
-
-    sections.push(
-        `3. **Interpret the Creative Direction (Text Prompt):** The user's prompt is "${finalPrompt}". This is the central creative goal.`,
-        "4. **Apply Technical Specifications (Presets & Details):** Use the following settings as professional guidelines to refine the final image:"
-    );
-    
-    const specList: string[] = [];
-    if (finalSettings.Mockup !== 'None' && finalSettings.Mockup !== 'None (Plain Backdrop)') {
-        specList.push(`- **Scene/Mockup:** ${finalSettings.Mockup}`);
-    } else {
-        specList.push("- **Scene/Mockup:** A clean, professional studio backdrop that complements the product.");
-    }
-    if (finalSettings.Camera !== 'None') specList.push(`- **Camera Preset:** ${finalSettings.Camera}`);
-    if (finalSettings.cameraDetails) {
-        const { focalLength, aperture, shutterSpeed, height, pitch, roll } = finalSettings.cameraDetails;
-        specList.push(`- **Camera Details:** ${focalLength}mm lens, f/${aperture}, 1/${shutterSpeed}s, ${height}cm height, ${pitch}° pitch, ${roll}° roll.`);
-    }
-
-    if (finalSettings.Lighting !== 'None') specList.push(`- **Lighting Preset:** ${finalSettings.Lighting}`);
-     if (finalSettings.lightingDetails) {
-        const { temperature, intensity, hardness } = finalSettings.lightingDetails;
-        specList.push(`- **Lighting Details:** ${temperature}K temp, ${intensity}% intensity, ${hardness}% hardness.`);
-    }
-
-    if (finalSettings.Manipulation !== 'None') specList.push(`- **Advanced Manipulations:** ${finalSettings.Manipulation}`);
-    if (finalSettings['Product Retouch'] !== 'None') specList.push(`- **Product Retouching:** ${finalSettings['Product Retouch']}`);
-    if (finalSettings['People Retouch'] !== 'None') specList.push(`- **People Retouching (if applicable):** ${finalSettings['People Retouch']}`);
-
-    sections.push(specList.join('\n'));
-
-    sections.push(
-        "**Final Output Requirement:**\nCombine your analysis of the images, the user's prompt, and the technical specifications to create one cohesive, stunning, and photorealistic product photograph. The result should look like it was shot by a professional photographer.",
-        exportSettings.transparent ? "The final image MUST have a transparent background and be a PNG." : "The background should be fully rendered and opaque."
-    );
-
-    return sections.join('\n\n').trim();
-};
-
-
-export const generateFinalImage = async (
-    productImage: ImageFile,
-    referenceImage: ImageFile | null,
-    finalPrompt: string,
-    finalSettings: ChosenSettings,
-    exportSettings: ExportSettings
-): Promise<{ base64: string; mimeType: string } | null> => {
-    const model = 'gemini-2.5-flash-image';
-    
-    // Use the new prompt builder
-    const artistPrompt = buildFinalPrompt(finalPrompt, finalSettings, exportSettings, !!referenceImage);
-
-    const parts: any[] = [
-        { text: artistPrompt }, // Text prompt should come first for some models
-        { inlineData: { data: productImage.base64, mimeType: productImage.mimeType } }
-    ];
-    if (referenceImage) {
-        parts.push({ inlineData: { data: referenceImage.base64, mimeType: referenceImage.mimeType } });
-    }
-
-    try {
-        const response = await genAI.models.generateContent({
-            model,
-            contents: { parts },
-            config: { responseModalities: [Modality.IMAGE] },
-        });
-
-        // Add a more robust check for safety issues
-        if (response.candidates?.[0]?.finishReason && response.candidates[0].finishReason !== 'STOP') {
-             console.error("Image generation stopped for reason:", response.candidates[0].finishReason, response);
-             throw new Error(`Image generation was blocked by the AI. Reason: ${response.candidates[0].finishReason}. Please try a different prompt or image.`);
-        }
-        
-        for (const part of response.candidates?.[0]?.content?.parts || []) {
-            if (part.inlineData) {
-                const mimeType = exportSettings.transparent ? 'image/png' : part.inlineData.mimeType;
-                return { base64: part.inlineData.data, mimeType };
-            }
-        }
-        
-        console.error("No image found in Gemini response or response was blocked.", response);
-        throw new Error("Generation succeeded, but the AI did not return an image. This might be due to a safety filter or an issue with the prompt.");
-    } catch (error) {
-        // The handleGeminiError function will catch and re-throw the specific errors from above.
-        handleGeminiError(error, 'final image generation');
-        return null;
     }
 };
 
@@ -366,13 +490,13 @@ export const analyzePortraitSubject = async (
 **Task:** Identify key characteristics of the subject and the photo's quality.
 
 **Analysis Categories:**
-1.  **Profile:** Classify the main subject into ONE of the following: "male", "female", "child", "senior". If it's a group photo, use "group". If it's not a person, use "off".
-2.  **Age Estimation:** Provide a general age range (e.g., "Toddler", "Teenager", "Young Adult", "Middle-Aged", "Senior Citizen").
-3.  **Lighting Quality:** Describe the lighting (e.g., "Professional Studio Light", "Harsh Sunlight", "Soft Window Light", "Low Light / Noisy", "Evenly Lit").
-4.  **Focus Quality:** Describe the focus (e.g., "Sharp", "Slightly Soft", "Blurry", "Motion Blur").
-5.  **Key Observations:** List up to 3 brief, critical observations relevant to retouching (e.g., "Wearing glasses", "Noticeable skin blemishes", "Flyaway hairs present", "Clothing has wrinkles", "Strong backlighting").
+1.  **Profile:** "male", "female", "child", "senior", "group", or "off".
+2.  **Age Estimation:** General age range.
+3.  **Lighting Quality:** Describe the lighting.
+4.  **Focus Quality:** Describe the focus.
+5.  **Key Observations:** List up to 3 brief, critical observations for retouching.
 
-**Output:** Return the analysis as a single, clean JSON object with the keys "profile", "age_estimation", "lighting_quality", "focus_quality", and "key_observations" (as an array of strings).`;
+**Output:** JSON object with keys "profile", "age_estimation", "lighting_quality", "focus_quality", "key_observations".`;
 
     const parts = [
         { inlineData: { data: image.base64, mimeType: image.mimeType } },
@@ -402,8 +526,7 @@ export const analyzePortraitSubject = async (
             }
         });
         const jsonText = response.text.trim();
-        const analysis = JSON.parse(jsonText);
-        return analysis as AiAnalysisReport;
+        return JSON.parse(jsonText) as AiAnalysisReport;
     } catch (error) {
         handleGeminiError(error, 'portrait subject analysis');
         throw error;
@@ -419,11 +542,9 @@ export const retouchPortraitImage = async (
     const model = 'gemini-2.5-flash-image';
     
     if (profile === 'off') {
-        // If profile is off, return the original image to show no effect
         return { base64: image.base64, mimeType: image.mimeType };
     }
 
-    // Helper to convert a numeric setting into a qualitative term.
     const getIntensity = (value: number): string => {
         if (value > 70) return 'strong';
         if (value > 30) return 'noticeable';
@@ -431,85 +552,67 @@ export const retouchPortraitImage = async (
     };
 
     const promptLines = [
-        "Task: Professionally retouch and enhance the provided portrait. The output must be a photorealistic image of the same person with improved quality. CRITICAL CONSTRAINT: You must preserve the subject's identity. Do not change their facial structure, eye shape, nose, or unique features. This is for enhancement only, like a filter, not generation.",
+        "Task: Professionally retouch and enhance the provided portrait.",
+        "STRICT OUTPUT REQUIREMENTS:",
+        "1. Do NOT change the image resolution, width, or height. The output MUST match the original dimensions.",
+        "2. Preserve the subject's identity, facial structure, and unique features exactly.",
+        "3. Maintain the original image quality. Do not compress or downscale.",
+        "4. Do not alter the composition, aspect ratio, or background (unless explicitly instructed to replace).",
     ];
 
     if (customPrompt && customPrompt.trim() !== '') {
-        promptLines.push(`\n**User's Creative Direction:** "${customPrompt}". Use this text to guide the retouching, understand nuances (like 'fix stray hairs'), and apply advanced effects (like 'add soft glow'). These instructions are the primary goal.`);
+        promptLines.push(`\n**User's Creative Direction:** "${customPrompt}".`);
     }
 
-    promptLines.push(`\n**AI Profile & Technical Settings:** The following settings provide a baseline. The user's text prompt should guide how these are applied or potentially override them.`);
-
+    promptLines.push(`\n**AI Profile & Technical Settings:**`);
 
     switch (profile) {
         case 'male':
-            promptLines.push("\nStyle: Masculine, sharp, and realistic. Enhance definition and texture.");
-            if (settings.blemishRemoval) promptLines.push("- Remove temporary blemishes like acne, but preserve all natural skin texture, pores, and scars.");
-            promptLines.push("- If facial hair (stubble, beard) is present, sharpen and define it. If the subject is clean-shaven, ensure the skin remains smooth in that area.");
-            if (settings.jawSculpt > 0) promptLines.push(`- Add ${getIntensity(settings.jawSculpt)} definition to the jawline and brow.`);
-            if (settings.darkCircleReduction > 0) promptLines.push(`- Subtly reduce dark circles under the eyes.`);
-            if (settings.skinSmoothing > 0) promptLines.push(`- Even out skin color tone with very subtle smoothing, avoiding any blur.`);
+            promptLines.push("\nStyle: Masculine, sharp, realistic.");
+            if (settings.blemishRemoval) promptLines.push("- Remove temporary blemishes, preserve skin texture.");
+            if (settings.jawSculpt > 0) promptLines.push(`- Add ${getIntensity(settings.jawSculpt)} definition to jawline.`);
+            if (settings.skinSmoothing > 0) promptLines.push(`- Even out skin tone (subtle).`);
             break;
         case 'female':
-            promptLines.push("\nStyle: Clean, aesthetic, and glowing. Create a polished, professional look.");
-            if (settings.skinSmoothing > 0) promptLines.push(`- Create smooth skin with a ${getIntensity(settings.skinSmoothing)} effect, evening out skin tone.`);
-            if (settings.skinTexture > 0) promptLines.push("- Re-introduce natural-looking skin texture to avoid a plastic look.");
-            if (settings.eyeEnhancement) promptLines.push("- Enhance makeup, brighten eyes, and gently reduce dark circles.");
-            if (settings.jawSculpt > 0 || settings.noseSculpt > 0) promptLines.push("- Subtly sculpt and refine facial contours.");
-            if (settings.blemishRemoval) promptLines.push("- Remove blemishes, spots, and distracting flyaway hairs.");
+            promptLines.push("\nStyle: Clean, aesthetic, glowing.");
+            if (settings.skinSmoothing > 0) promptLines.push(`- Create smooth skin (${getIntensity(settings.skinSmoothing)}), preserve texture.`);
+            if (settings.eyeEnhancement) promptLines.push("- Enhance makeup, brighten eyes.");
+            if (settings.jawSculpt > 0 || settings.noseSculpt > 0) promptLines.push("- Subtly sculpt contours.");
             break;
         case 'child':
-            promptLines.push("\nStyle: Natural and clean. Apply only minimal, subtle corrections.");
-            if (settings.lightingCorrection) promptLines.push("- Correct any poor lighting and unnatural color casts on the skin.");
-            if (settings.blemishRemoval) promptLines.push("- Clean up minor, non-permanent marks like food stains or dirt.");
-            promptLines.push("- Do not apply any skin smoothing, facial sculpting, or eye enhancement.");
+            promptLines.push("\nStyle: Natural and clean. Minimal corrections.");
+            if (settings.lightingCorrection) promptLines.push("- Correct poor lighting.");
             break;
         case 'senior':
-            promptLines.push("\nStyle: Dignified, natural, and sharp. Enhance clarity while maintaining a realistic and age-appropriate appearance.");
-            if (settings.wrinkleReduction > 0) promptLines.push(`- ${getIntensity(settings.wrinkleReduction)} reduction of deep wrinkles, but do not remove them. Preserve character lines.`);
-            if (settings.skinTexture > 0) promptLines.push("- Emphasize natural skin texture, avoiding any overly smooth or artificial look.");
-            if (settings.eyeEnhancement) promptLines.push("- Brighten and add clarity to the eyes to make them stand out.");
-            if (settings.blemishRemoval) promptLines.push("- Remove temporary age spots or discoloration, but keep defining features like moles.");
-            if (settings.hairShineEnhancement > 0) promptLines.push("- Add a healthy shine to hair, whether it's grey or colored.");
+            promptLines.push("\nStyle: Dignified, natural, sharp.");
+            if (settings.wrinkleReduction > 0) promptLines.push(`- ${getIntensity(settings.wrinkleReduction)} reduction of deep wrinkles (do not remove character lines).`);
             break;
         case 'professional':
-            promptLines.push("\nStyle: Corporate headshot. Clean, confident, and professional. The subject should look competent and approachable.");
-            if (settings.shineRemoval > 0) promptLines.push(`- ${getIntensity(settings.shineRemoval)} reduction of skin shine/oiliness, especially on the forehead and nose, for a matte finish.`);
-            if (settings.clothingWrinkleRemoval) promptLines.push("- Critical: Remove all wrinkles and lint from clothing (e.g., shirt collar, blazer).");
-            if (settings.eyeEnhancement) promptLines.push("- Ensure eyes are bright, engaging, and in sharp focus.");
-            if (settings.teethWhitening > 0) promptLines.push(`- Apply ${getIntensity(settings.teethWhitening)} teeth whitening for a clean smile.`);
-            if (settings.backgroundEnhancement !== 'keep') promptLines.push("- The background should be clean and non-distracting, often a neutral studio backdrop or a subtly blurred office environment.");
+            promptLines.push("\nStyle: Corporate headshot. Clean, confident.");
+            if (settings.shineRemoval > 0) promptLines.push(`- ${getIntensity(settings.shineRemoval)} reduction of shine.`);
+            if (settings.clothingWrinkleRemoval) promptLines.push("- Remove clothing wrinkles.");
+            if (settings.teethWhitening > 0) promptLines.push(`- ${getIntensity(settings.teethWhitening)} teeth whitening.`);
             break;
         case 'glamour':
-            promptLines.push("\nStyle: High-fashion / beauty magazine. Flawless, sculpted, and dramatic. The result should be highly stylized and idealized.");
-            if (settings.skinSmoothing > 0) promptLines.push(`- Apply ${getIntensity(settings.skinSmoothing)} skin smoothing for a porcelain-like finish.`);
-            if (settings.jawSculpt > 0 || settings.noseSculpt > 0) promptLines.push("- Perform noticeable facial contouring (dodge & burn style) to sculpt the jawline, cheekbones, and nose.");
-            if (settings.eyeEnhancement) promptLines.push("- Dramatically enhance the eyes: brighten the sclera, intensify iris color, and define eyelashes/eyeliner.");
-            if (settings.hairShineEnhancement > 0) promptLines.push(`- Add a strong, healthy shine and volume to the hair.`);
-            if (settings.colorGrading !== 'none') promptLines.push(`- Apply a strong, cinematic or stylized color grade to fit the high-fashion mood.`);
+            promptLines.push("\nStyle: High-fashion, flawless, dramatic.");
+            if (settings.skinSmoothing > 0) promptLines.push(`- ${getIntensity(settings.skinSmoothing)} skin smoothing.`);
+            if (settings.eyeEnhancement) promptLines.push("- Dramatically enhance eyes.");
+            if (settings.colorGrading !== 'none') promptLines.push(`- Apply cinematic color grade.`);
             break;
     }
 
-    // Common settings for applicable profiles
     if (profile !== 'child') {
-        if (settings.flyawayHairRemoval > 0) promptLines.push(`- Tame flyaway hairs with a ${getIntensity(settings.flyawayHairRemoval)} effect.`);
-        if (settings.clothingWrinkleRemoval) promptLines.push("- Remove distracting wrinkles from clothing.");
+        if (settings.flyawayHairRemoval > 0) promptLines.push(`- Tame flyaway hairs (${getIntensity(settings.flyawayHairRemoval)}).`);
     }
 
-    // Background and Effects
     promptLines.push("\nFinal Touches:");
-    switch (settings.backgroundEnhancement) {
-        case 'blur': promptLines.push("- Apply a soft, realistic bokeh blur to the background."); break;
-        case 'desaturate': promptLines.push("- Subtly desaturate the background colors."); break;
-        case 'replace': promptLines.push(`- Replace the background with: "${settings.backgroundReplacementPrompt || 'a neutral studio backdrop'}".`); break;
-        default: promptLines.push("- Keep the original background."); break;
-    }
-    if (settings.colorGrading !== 'none') {
-        promptLines.push(`- Apply a professional ${settings.colorGrading} color grade.`);
-    }
-    if (settings.filmGrain > 0) {
-        promptLines.push(`- Add ${getIntensity(settings.filmGrain)} film grain for a cinematic feel.`);
-    }
+    if (settings.backgroundEnhancement === 'blur') promptLines.push("- Apply soft bokeh blur to background.");
+    else if (settings.backgroundEnhancement === 'replace') promptLines.push(`- Replace background with: "${settings.backgroundReplacementPrompt || 'neutral studio'}".`);
+    else if (settings.backgroundEnhancement === 'desaturate') promptLines.push("- Desaturate background slightly.");
+    // 'keep' implies no instruction needed, or explicit instruction to keep.
+    else promptLines.push("- Keep background exactly as is.");
+    
+    if (settings.filmGrain > 0) promptLines.push(`- Add ${getIntensity(settings.filmGrain)} film grain.`);
     
     const fullPrompt = promptLines.join('\n');
     const parts = [{ text: fullPrompt }, { inlineData: { data: image.base64, mimeType: image.mimeType } }];
@@ -522,8 +625,7 @@ export const retouchPortraitImage = async (
         });
 
         if (response.candidates?.[0]?.finishReason && response.candidates[0].finishReason !== 'STOP') {
-             console.error("Retouch stopped for reason:", response.candidates[0].finishReason, response);
-             throw new Error(`Image retouching was blocked. Reason: ${response.candidates[0].finishReason}.`);
+             throw new Error(`Retouching blocked. Reason: ${response.candidates[0].finishReason}.`);
         }
         
         for (const part of response.candidates?.[0]?.content?.parts || []) {
@@ -531,42 +633,35 @@ export const retouchPortraitImage = async (
                 return { base64: part.inlineData.data, mimeType: 'image/jpeg' };
             }
         }
-        
-        throw new Error("Retouching succeeded, but the AI did not return an image.");
+        throw new Error("Retouching succeeded, but no image was returned.");
     } catch (error) {
         handleGeminiError(error, 'portrait retouching');
         return null;
     }
 };
 
-
 export const upscaleImage = async (
     baseImage: { base64: string; mimeType: string },
     target: UpscaleTarget,
 ): Promise<{ base64: string; mimeType: string } | null> => {
     const model = 'gemini-2.5-flash-image';
-    const imagePart = { inlineData: { data: baseImage.base64, mimeType: baseImage.mimeType } };
     
     let upscalePrompt: string;
     if (target === '4k') {
-        upscalePrompt = `Perform a professional-grade super-resolution upscale to a 4K resolution (~4096px on the longest side). The primary goal is maximum detail preservation and clarity. Subtly enhance fine details and textures like fabric weaves or brushed metal without introducing artifacts, noise, or blurring. Maintain perfect color fidelity and lighting from the original image. This is a technical upscaling task; do not alter the style, composition, or content. Output only the upscaled image.`;
-    } else { // 'hd'
-        upscalePrompt = `Upscale this image to a high-definition resolution (~2K). Preserve all original details and textures perfectly, avoiding any blurring or artifacts. Do not alter the style or content. Output only the upscaled image.`;
+        upscalePrompt = `Perform a professional-grade super-resolution upscale to a 4K resolution (~4096px on the longest side). Preserve all original details and textures perfectly. Do not alter the style or content. Output only the upscaled image.`;
+    } else {
+        upscalePrompt = `Upscale this image to a high-definition resolution (~2K). Preserve all original details and textures. Output only the upscaled image.`;
     }
-
-    const textPart = { text: upscalePrompt };
 
     try {
         const response = await genAI.models.generateContent({
             model,
-            contents: { parts: [imagePart, textPart] },
+            contents: { parts: [{ inlineData: { data: baseImage.base64, mimeType: baseImage.mimeType } }, { text: upscalePrompt }] },
             config: { responseModalities: [Modality.IMAGE] },
         });
         
-        // Add a more robust check for safety issues
         if (response.candidates?.[0]?.finishReason && response.candidates[0].finishReason !== 'STOP') {
-             console.error("Upscale stopped for reason:", response.candidates[0].finishReason, response);
-             throw new Error(`Image upscaling was blocked by the AI. Reason: ${response.candidates[0].finishReason}.`);
+             throw new Error(`Upscaling blocked. Reason: ${response.candidates[0].finishReason}.`);
         }
         
         for (const part of response.candidates?.[0]?.content?.parts || []) {
@@ -574,10 +669,7 @@ export const upscaleImage = async (
                 return { base64: part.inlineData.data, mimeType: part.inlineData.mimeType };
             }
         }
-        
-        console.error("No image found in upscale response.", response);
-        // Throw an error that will be caught and handled
-        throw new Error("Upscaling succeeded, but the AI did not return an image.");
+        throw new Error("Upscaling succeeded, but no image was returned.");
     } catch (error) {
         handleGeminiError(error, 'image upscaling');
         return null;

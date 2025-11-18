@@ -4,11 +4,11 @@ import {
     ImageFile, CameraPreset, LightingPreset, MockupPreset, ManipulationPreset, RetouchPreset, PeopleRetouchPreset, 
     ExportSettings, UpscaleTarget, HistoryItem, ChosenSettings, SuggestionConcept,
     PortraitRetouchSettings, AiProfile, AiAnalysisReport,
-    CameraSettings, LightingSettings
+    CameraSettings, LightingSettings, DirectorResult
 } from './types';
 import { 
     CAMERA_PRESETS, LIGHTING_PRESETS, MOCKUP_PRESETS, MANIPULATION_PRESETS, 
-    RETOUCH_PRESETS, PEOPLE_RETOUCH_PRESETS, DEFAULT_PORTRAIT_SETTINGS
+    RETOUCH_PRESETS, PEOPLE_RETOUCH_PRESETS, DEFAULT_PORTRAIT_SETTINGS, DIRECTOR_SHOTS
 } from './constants';
 import ControlPanel from './components/ControlPanel';
 import GenerationPanel from './components/GenerationPanel';
@@ -17,7 +17,9 @@ import FineTunePanel from './components/FineTunePanel';
 import PortraitRetouchPanel from './components/PortraitRetouchPanel';
 import PortraitTunePanel from './components/PortraitTunePanel';
 import BottomNavBar from './components/BottomNavBar';
-import { BehanceIcon, FacebookIcon, InstagramIcon, WhatsAppIcon, HistoryIcon, CloseIcon, SparklesIcon, LogoIcon } from './components/Icons';
+import DirectorPanel from './components/DirectorPanel';
+import DirectorViewer from './components/DirectorViewer';
+import { BehanceIcon, FacebookIcon, InstagramIcon, HistoryIcon, CloseIcon, SparklesIcon, LogoIcon } from './components/Icons';
 import { 
     generateFinalImage,
     upscaleImage, 
@@ -131,7 +133,7 @@ const SuggestionsModal: React.FC<SuggestionsModalProps> = ({ isOpen, suggestions
 
 const App: React.FC = () => {
     // Mode
-    const [mode, setMode] = useState<'studio' | 'generate' | 'portrait'>('studio');
+    const [mode, setMode] = useState<'studio' | 'generate' | 'portrait' | 'director'>('studio');
 
     // Image states
     const [studioGeneratedImage, setStudioGeneratedImage] = useState<{ base64: string; mimeType: string } | null>(null);
@@ -144,6 +146,10 @@ const App: React.FC = () => {
     const [isGeneratingSuggestions, setIsGeneratingSuggestions] = useState<boolean>(false);
     const [creativeSuggestions, setCreativeSuggestions] = useState<SuggestionConcept[]>([]);
     const [isSuggestionsModalOpen, setIsSuggestionsModalOpen] = useState<boolean>(false);
+
+    // --- Director Mode states ---
+    const [directorSelectedShotIds, setDirectorSelectedShotIds] = useState<string[]>([]);
+    const [directorResults, setDirectorResults] = useState<DirectorResult[]>([]);
 
     // Fine-Tune States
     const [selectedCameras, setSelectedCameras] = useState<CameraPreset[]>([CAMERA_PRESETS[0]]);
@@ -174,6 +180,7 @@ const App: React.FC = () => {
     const [aiProfile, setAiProfile] = useState<AiProfile>('off');
     
     const [portraitSettings, setPortraitSettings] = useState<PortraitRetouchSettings>(DEFAULT_PORTRAIT_SETTINGS.off);
+
 
     // Shared states
     const [exportSettings, setExportSettings] = useState<ExportSettings>({ aspectRatio: '1:1', transparent: false });
@@ -292,7 +299,11 @@ const App: React.FC = () => {
         setIsGeneratingSuggestions(true);
         setCreativeSuggestions([]);
         try {
-            const suggestions = await generateCreativeSuggestions(productImage, referenceImage, customPrompt);
+            // Capture selected camera constraint if any
+            const activeCamera = selectedCameras[0];
+            const cameraConstraint = activeCamera.id !== 'none' ? activeCamera.name : undefined;
+
+            const suggestions = await generateCreativeSuggestions(productImage, referenceImage, customPrompt, cameraConstraint);
             if (suggestions && suggestions.length > 0) {
                 setCreativeSuggestions(suggestions);
                 setIsSuggestionsModalOpen(true);
@@ -401,7 +412,7 @@ const App: React.FC = () => {
         }
     }, []);
     
-    const canGenerateStudio = !!productImage && customPrompt.trim() !== '' && !isLoading && isOnline;
+    const canGenerateStudio = !!productImage && !isLoading && isOnline;
 
     const handleGenerateStudio = useCallback(async () => {
         if (!canGenerateStudio || !productImage) return;
@@ -411,7 +422,8 @@ const App: React.FC = () => {
         setGenerationPrompt('');
         setNegativePrompt('');
         
-        const finalSettings: ChosenSettings = {
+        let activePrompt = customPrompt;
+        let activeSettings: ChosenSettings = {
             Camera: selectedCameras[0].name,
             cameraDetails: cameraSettings,
             Lighting: selectedLightings.map(p => p.name).filter(n => n !== 'None').join(', ') || 'None',
@@ -423,7 +435,47 @@ const App: React.FC = () => {
         };
 
         try {
-            const generatedImageResult = await generateFinalImage(productImage, referenceImage, customPrompt, finalSettings, exportSettings);
+            // Smart Generate Logic (Prompt-Less Generation)
+            if (activePrompt.trim() === '') {
+                 try {
+                     // Pass any manually selected camera constraint
+                    const activeCamera = selectedCameras[0];
+                    const cameraConstraint = activeCamera.id !== 'none' ? activeCamera.name : undefined;
+
+                    const suggestions = await generateCreativeSuggestions(productImage, referenceImage, "", cameraConstraint);
+                    
+                    if (suggestions && suggestions.length > 0) {
+                        const smartSuggestion = suggestions[0]; // Use the Studio/Minimalist shot
+                        activePrompt = smartSuggestion.prompt_text;
+                        setCustomPrompt(activePrompt); // Visual feedback for the user
+                        
+                        // Apply AI-suggested settings
+                        if (smartSuggestion.settings_json) {
+                            updateControlsFromSettings(smartSuggestion.settings_json); // Update UI state
+                            
+                            // Merge into activeSettings for this immediate API call
+                            const s = smartSuggestion.settings_json;
+                            if(s.Camera) activeSettings.Camera = s.Camera;
+                            if(s.Lighting) activeSettings.Lighting = s.Lighting;
+                            if(s.Mockup) activeSettings.Mockup = s.Mockup;
+                            if(s.Manipulation) activeSettings.Manipulation = s.Manipulation;
+                            if(s['Product Retouch']) activeSettings['Product Retouch'] = s['Product Retouch'];
+                            if(s['People Retouch']) activeSettings['People Retouch'] = s['People Retouch'];
+                            if(s.cameraDetails) activeSettings.cameraDetails = { ...activeSettings.cameraDetails, ...s.cameraDetails };
+                            if(s.lightingDetails) activeSettings.lightingDetails = { ...activeSettings.lightingDetails, ...s.lightingDetails };
+                        }
+                    } else {
+                         activePrompt = "Professional product photography, studio lighting, high quality, 8k";
+                         setCustomPrompt(activePrompt);
+                    }
+                 } catch (suggestionError) {
+                     console.error("Smart Generate suggestions failed", suggestionError);
+                     activePrompt = "High quality studio product shot";
+                     setCustomPrompt(activePrompt);
+                 }
+            }
+
+            const generatedImageResult = await generateFinalImage(productImage, referenceImage, activePrompt, activeSettings, exportSettings);
             if (generatedImageResult) {
                 setStudioGeneratedImage(generatedImageResult);
                 const historyEntry: HistoryItem = {
@@ -431,8 +483,8 @@ const App: React.FC = () => {
                     generated: [generatedImageResult], 
                     source: productImage,
                     referenceImage: referenceImage, 
-                    prompt: customPrompt, 
-                    chosenSettings: finalSettings, 
+                    prompt: activePrompt, 
+                    chosenSettings: activeSettings, 
                     exportSettings: exportSettings,
                 };
                 setHistory(prev => [historyEntry, ...prev]);
@@ -443,7 +495,7 @@ const App: React.FC = () => {
         } finally {
             setIsLoading(false);
         }
-    }, [canGenerateStudio, productImage, referenceImage, customPrompt, exportSettings, selectedCameras, cameraSettings, selectedLightings, lightingSettings, selectedMockups, selectedManipulations, selectedRetouches, selectedPeopleRetouches]);
+    }, [canGenerateStudio, productImage, referenceImage, customPrompt, exportSettings, selectedCameras, cameraSettings, selectedLightings, lightingSettings, selectedMockups, selectedManipulations, selectedRetouches, selectedPeopleRetouches, updateControlsFromSettings]);
 
     const handleImageGeneration = async () => {
         if (generationPrompt.trim() === '' || isLoading || !isOnline) return;
@@ -477,6 +529,65 @@ const App: React.FC = () => {
         }
     };
     
+    const handleDirectorGenerate = async () => {
+        if (!productImage || (directorSelectedShotIds.length === 0 && customPrompt.trim() === '')) return;
+        setIsLoading(true);
+
+        const shotsToGenerate = directorSelectedShotIds.length > 0
+            ? directorSelectedShotIds.map(id => DIRECTOR_SHOTS.find(s => s.id === id)).filter(Boolean)
+            : [{ id: 'custom', label: 'Custom Shot', category: 'Custom' }];
+
+        const baseSettings: ChosenSettings = {
+            Camera: 'None', Lighting: 'None', Mockup: 'None', Manipulation: 'None', 'Product Retouch': 'None', 'People Retouch': 'None'
+        };
+
+        // Sequential generation to avoid rate limits and provide progressive feedback
+        for (const shot of shotsToGenerate) {
+            if(!shot) continue;
+            const shotPrompt = shot.id === 'custom' ? '' : shot.label;
+            const fullPrompt = `${shotPrompt} ${customPrompt}`.trim();
+
+            try {
+                const result = await generateFinalImage(productImage, null, fullPrompt, baseSettings, exportSettings);
+                if (result) {
+                    const newResult: DirectorResult = {
+                        id: Date.now().toString() + Math.random(),
+                        shotLabel: shot.label,
+                        timestamp: Date.now(),
+                        image: result
+                    };
+                    setDirectorResults(prev => [newResult, ...prev]);
+                }
+            } catch (e) {
+                console.error("Director generation partial failure", e);
+            }
+        }
+        setIsLoading(false);
+    };
+    
+    const handleDirectorDelete = (id: string) => {
+        setDirectorResults(prev => prev.filter(r => r.id !== id));
+    };
+
+    const handleDirectorEnhance = async (result: DirectorResult, target: UpscaleTarget) => {
+        if (!result || isUpscaling || !isOnline) return;
+        setIsUpscaling(target);
+        try {
+            const enhancedImage = await upscaleImage(result.image, target);
+            if (enhancedImage) {
+                // Replace the image in the results array
+                setDirectorResults(prev => prev.map(r => r.id === result.id ? { ...r, image: enhancedImage } : r));
+            } else {
+                alert("Enhancement failed: No image returned.");
+            }
+        } catch (error) {
+            console.error("Enhance error:", error);
+             alert(`An error occurred during enhancement: ${(error as Error).message}`);
+        } finally {
+            setIsUpscaling(false);
+        }
+    };
+
     const handleManualRetouchGenerate = () => {
         handleGenerateRetouch(aiProfile, portraitSettings, portraitPrompt);
     };
@@ -533,6 +644,7 @@ const App: React.FC = () => {
         setStudioGeneratedImage(null);
         setGenerationGeneratedImages(null);
         setRetouchedImage(null);
+        setDirectorResults([]);
 
         // Reset Studio Mode states
         setProductImage(null);
@@ -540,6 +652,9 @@ const App: React.FC = () => {
         setCustomPrompt('');
         setCreativeSuggestions([]);
         setCameraSuggestions([]);
+
+        // Reset Director Mode states
+        setDirectorSelectedShotIds([]);
 
         // Reset Fine-Tune States using existing helper
         resetStudioControls();
@@ -603,7 +718,7 @@ const App: React.FC = () => {
         setIsSuggestionsModalOpen(false);
     };
     
-    const changeMode = (newMode: 'studio' | 'generate' | 'portrait') => {
+    const changeMode = (newMode: 'studio' | 'generate' | 'portrait' | 'director') => {
         setMode(newMode);
     }
 
@@ -611,6 +726,9 @@ const App: React.FC = () => {
         <>
             <button onClick={() => changeMode('studio')} className={`px-4 py-1.5 text-sm font-semibold rounded-full transition-colors ${mode === 'studio' ? 'bg-[var(--accent-color)] text-white' : 'text-[var(--text-muted)] hover:text-white'}`}>
                 Creative Studio
+            </button>
+             <button onClick={() => changeMode('director')} className={`px-4 py-1.5 text-sm font-semibold rounded-full transition-colors ${mode === 'director' ? 'bg-[var(--accent-color)] text-white' : 'text-[var(--text-muted)] hover:text-white'}`}>
+                Magic Shot
             </button>
             <button onClick={() => changeMode('generate')} className={`px-4 py-1.5 text-sm font-semibold rounded-full transition-colors ${mode === 'generate' ? 'bg-[var(--accent-color)] text-white' : 'text-[var(--text-muted)] hover:text-white'}`}>
                 Image Generation
@@ -631,18 +749,14 @@ const App: React.FC = () => {
 
     return (
         <div className="min-h-screen lg:h-screen flex flex-col">
-            <header className="relative flex-shrink-0 p-3 sm:p-4 flex justify-between items-center bg-black/30 backdrop-blur-xl border-b border-[var(--border-color)] z-30">
+            {/* 1. Main Header (Top Bar) */}
+            <header className="relative flex-shrink-0 px-6 py-4 flex justify-between items-center bg-black/30 backdrop-blur-xl border-b border-[var(--border-color)] z-30">
                 <button onClick={handleResetApp} aria-label="Reset application to default state" className="flex items-center gap-3 group">
                     <LogoIcon className="w-8 h-8 text-[var(--accent-color)] transition-transform duration-300 ease-in-out group-hover:rotate-[15deg] group-hover:scale-110" />
                     <h1 className="text-xl sm:text-2xl font-bold from-slate-200 to-slate-400 bg-gradient-to-r bg-clip-text text-transparent tracking-wide">
                         ADHOM AI <span className="font-light hidden sm:inline">Creative Studio</span>
                     </h1>
                 </button>
-
-                {/* Desktop Mode Switcher */}
-                <div className="hidden lg:flex items-center gap-2 p-1 bg-black/20 rounded-full border border-[var(--border-color)]">
-                    {modeButtons}
-                </div>
 
                 <div className="flex items-center gap-4">
                      {/* Desktop Social Links */}
@@ -652,6 +766,13 @@ const App: React.FC = () => {
                     </div>
                 </div>
             </header>
+
+            {/* 2. Secondary Navigation (Tabs Bar) */}
+            <div className="hidden lg:flex flex-shrink-0 items-center justify-center w-full border-b border-[var(--border-color)] bg-black/10 backdrop-blur-md py-3 z-20">
+                <div className="flex items-center gap-1 p-1 bg-black/20 rounded-full border border-[var(--border-color)]">
+                    {modeButtons}
+                </div>
+            </div>
 
             <main className="flex-grow lg:min-h-0 p-2 sm:p-4">
                 {mode === 'studio' && (
@@ -696,6 +817,34 @@ const App: React.FC = () => {
                                 </div>
                             </div>
                         </aside>
+                    </div>
+                )}
+
+                {mode === 'director' && (
+                    <div className="flex flex-col lg:grid grid-cols-1 lg:grid-cols-[420px_1fr] gap-2 sm:gap-4 h-full pb-20 lg:pb-0">
+                        <aside className="w-full flex-shrink-0 lg:min-h-0 h-full">
+                            <DirectorPanel
+                                productImage={productImage}
+                                setProductImage={setProductImage}
+                                selectedShotIds={directorSelectedShotIds}
+                                setSelectedShotIds={setDirectorSelectedShotIds}
+                                customPrompt={customPrompt}
+                                setCustomPrompt={setCustomPrompt}
+                                onGenerate={handleDirectorGenerate}
+                                isLoading={isLoading}
+                                isOnline={isOnline}
+                            />
+                        </aside>
+                        <section className="relative flex items-center justify-center lg:flex-grow lg:h-full animated-viewer-bg rounded-2xl overflow-hidden order-first lg:order-none">
+                            <div className="absolute inset-0 bg-grid-pattern opacity-10" style={{ backgroundSize: '30px 30px' }}></div>
+                            <DirectorViewer 
+                                results={directorResults} 
+                                onDelete={handleDirectorDelete}
+                                onEnhance={handleDirectorEnhance}
+                                isGenerating={isLoading}
+                                isUpscaling={!!isUpscaling}
+                            />
+                        </section>
                     </div>
                 )}
                 

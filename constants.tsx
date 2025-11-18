@@ -1,6 +1,13 @@
+
 import React from 'react';
-import { CameraPreset, LightingPreset, MockupPreset, ManipulationPreset, RetouchPreset, PeopleRetouchPreset, AspectRatio, AiProfile, PortraitRetouchSettings } from './types';
-import { CameraIcon, SunIcon, CubeTransparentIcon, WandIcon, ArrowsExpandIcon, LayersIcon, SlashIcon, UserIcon } from './components/Icons';
+import { 
+    CameraPreset, LightingPreset, MockupPreset, ManipulationPreset, RetouchPreset, PeopleRetouchPreset, 
+    AspectRatio, AiProfile, PortraitRetouchSettings, IllustrationStylePreset, DesignStylePreset
+} from './types';
+import { 
+    CameraIcon, SunIcon, CubeTransparentIcon, WandIcon, ArrowsExpandIcon, LayersIcon, SlashIcon, 
+    UserIcon, VectorIcon
+} from './components/Icons';
 
 export const CAMERA_PRESETS: CameraPreset[] = [
     { id: 'none', name: 'None', description: 'No specific camera instructions. The AI will decide the best angle.', metadata: '', icon: <SlashIcon className="w-6 h-6" /> },
@@ -83,7 +90,7 @@ export const MANIPULATION_PRESETS: ManipulationPreset[] = [
 ];
 
 export const PEOPLE_RETOUCH_PRESETS: PeopleRetouchPreset[] = [
-    { id: 'none', name: 'None', description: 'No specific retouching for people.', icon: <SlashIcon className="w-6 h-6" /> },
+    { id: 'none', name: 'None', description: 'No specific retouching for people.', icon: <UserIcon className="w-6 h-6" /> },
     { id: 'natural-skin', name: 'Natural Skin', description: 'Subtle blemish removal and skin tone evening. Preserves skin texture.', icon: <UserIcon className="w-6 h-6" /> },
     { id: 'frequency-separation-skin', name: 'Frequency Separation (Skin)', description: 'Advanced skin retouching. Smooths tones while preserving natural texture like pores. Reduces wrinkles.', icon: <UserIcon className="w-6 h-6" /> },
     { id: 'dodge-burn', name: 'Dodge & Burn', description: 'Non-destructive contouring to enhance facial features and add dimension.', icon: <UserIcon className="w-6 h-6" /> },
@@ -136,7 +143,7 @@ export const DEFAULT_PORTRAIT_SETTINGS: Record<AiProfile, PortraitRetouchSetting
         eyeEnhancement: true, darkCircleReduction: 40, teethWhitening: 30,
         jawSculpt: 15, noseSculpt: 10, eyeSculpt: 5,
         flyawayHairRemoval: 50, hairShineEnhancement: 40, clothingWrinkleRemoval: true,
-        lightingCorrection: true, colorCastFix: true, backgroundEnhancement: 'blur',
+        lightingCorrection: true, colorCastFix: true, backgroundEnhancement: 'keep',
         colorGrading: 'warm', filmGrain: 10,
     },
     'child': {
@@ -160,7 +167,7 @@ export const DEFAULT_PORTRAIT_SETTINGS: Record<AiProfile, PortraitRetouchSetting
         eyeEnhancement: true, darkCircleReduction: 30, teethWhitening: 40,
         jawSculpt: 10, noseSculpt: 0, eyeSculpt: 0,
         flyawayHairRemoval: 40, hairShineEnhancement: 25, clothingWrinkleRemoval: true,
-        lightingCorrection: true, colorCastFix: true, backgroundEnhancement: 'desaturate',
+        lightingCorrection: true, colorCastFix: true, backgroundEnhancement: 'keep',
         colorGrading: 'none', filmGrain: 0,
     },
     'glamour': {
@@ -168,7 +175,7 @@ export const DEFAULT_PORTRAIT_SETTINGS: Record<AiProfile, PortraitRetouchSetting
         eyeEnhancement: true, darkCircleReduction: 60, teethWhitening: 50,
         jawSculpt: 30, noseSculpt: 15, eyeSculpt: 10,
         flyawayHairRemoval: 60, hairShineEnhancement: 60, clothingWrinkleRemoval: true,
-        lightingCorrection: true, colorCastFix: true, backgroundEnhancement: 'blur',
+        lightingCorrection: true, colorCastFix: true, backgroundEnhancement: 'keep',
         colorGrading: 'cinematic', filmGrain: 15,
     },
     'off': {
@@ -181,7 +188,6 @@ export const DEFAULT_PORTRAIT_SETTINGS: Record<AiProfile, PortraitRetouchSetting
     }
 };
 
-// FIX: Add missing PROMPT_ENHANCER_KEYWORDS export
 export const PROMPT_ENHANCER_KEYWORDS: { category: string; keywords: string[] }[] = [
     {
         category: 'Style & Medium',
@@ -218,4 +224,46 @@ export const PROMPT_ENHANCER_KEYWORDS: { category: string; keywords: string[] }[
             'Mysterious', 'Energetic', 'Whimsical', 'Dreamlike'
         ]
     }
+];
+
+export const DIRECTOR_SHOTS = [
+    // Angle Shots
+    { id: 'close-up', label: 'Close Up / Macro', category: 'Angle' },
+    { id: 'top-down', label: 'Top Down Shot', category: 'Angle' },
+    { id: 'high-angle', label: 'High Angle', category: 'Angle' },
+    { id: 'low-angle', label: 'Low Angle / Hero', category: 'Angle' },
+    { id: 'eye-level', label: 'Eye Level', category: 'Angle' },
+    
+    // Environment & Style
+    { id: 'marble', label: 'On a Marble Surface', category: 'Environment' },
+    { id: 'travel-bag', label: 'In a Travel Bag', category: 'Environment' },
+    { id: 'sandy-beach', label: 'On a Sandy Beach', category: 'Environment' },
+    { id: 'wooden-table', label: 'On a Wooden Table', category: 'Environment' },
+    { id: 'studio-grey', label: 'Clean Studio Grey', category: 'Environment' },
+    { id: 'neon-city', label: 'Neon City Street', category: 'Environment' },
+    { id: 'sunlight-shadows', label: 'Hard Sunlight Shadows', category: 'Environment' },
+    { id: 'floating', label: 'Floating / Levitation', category: 'Environment' },
+    { id: 'splash', label: 'Water Splash Shot', category: 'Environment' },
+];
+
+export const ILLUSTRATION_STYLES: IllustrationStylePreset[] = [
+    { id: 'flat', name: 'Flat Vector', description: 'Clean, modern flat design with solid colors.', icon: <VectorIcon className="w-6 h-6" /> },
+    { id: 'isometric', name: 'Isometric', description: '3D perspective illustration style.', icon: <VectorIcon className="w-6 h-6" /> },
+    { id: 'hand-drawn', name: 'Hand Drawn', description: 'Sketchy, organic lines and textures.', icon: <VectorIcon className="w-6 h-6" /> },
+    { id: 'line-art', name: 'Line Art', description: 'Minimalist monoline drawing.', icon: <VectorIcon className="w-6 h-6" /> },
+];
+
+export const DESIGN_KIT_STYLES: DesignStylePreset[] = [
+    { id: 'modern-clean', name: 'Modern Clean', description: 'Minimalist UI with ample whitespace.', icon: <VectorIcon className="w-6 h-6" /> },
+    { id: 'neo-brutalism', name: 'Neo-Brutalism', description: 'Bold strokes, high contrast, unpolished look.', icon: <VectorIcon className="w-6 h-6" /> },
+    { id: 'glassmorphism', name: 'Glassmorphism', description: 'Translucent frosted glass effects.', icon: <VectorIcon className="w-6 h-6" /> },
+];
+
+export const DESIGN_COMPONENTS = [
+    { id: 'buttons', label: 'Buttons' },
+    { id: 'typography', label: 'Typography Scale' },
+    { id: 'colors', label: 'Color Palette' },
+    { id: 'icons', label: 'Icon Set' },
+    { id: 'inputs', label: 'Input Fields' },
+    { id: 'cards', label: 'Card Layouts' },
 ];

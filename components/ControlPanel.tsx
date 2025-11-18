@@ -44,8 +44,20 @@ const ControlPanel: React.FC<ControlPanelProps> = (props) => {
     return (
         <div className="flex flex-col h-full">
             <div className="flex-grow overflow-y-auto p-3 sm:p-4 space-y-3 sm:space-y-4">
-                <ImageUploader title="1. Upload Product Image" description="The main subject of your final image." onImageChange={setProductImage} image={productImage} />
-                <ImageUploader title="2. Upload Style Reference (Optional)" description="The AI will match this image's mood and lighting." onImageChange={setReferenceImage} image={referenceImage} />
+                <div className="grid grid-cols-2 gap-3">
+                    <ImageUploader 
+                        title="Product Image" 
+                        description="Main Subject" 
+                        onImageChange={setProductImage} 
+                        image={productImage} 
+                    />
+                    <ImageUploader 
+                        title="Style Ref" 
+                        description="Optional Mood" 
+                        onImageChange={setReferenceImage} 
+                        image={referenceImage} 
+                    />
+                </div>
                 <div>
                     <div className="flex justify-between items-center mb-2">
                         <h3 className="font-semibold text-[var(--text-light)] text-lg">
@@ -96,7 +108,7 @@ const ControlPanel: React.FC<ControlPanelProps> = (props) => {
                             ? 'bg-gradient-to-r from-[#4f46e5] to-[#6366f1] text-white animate-button-glow'
                             : 'bg-gray-700/50 border border-gray-600 text-[var(--text-disabled)] cursor-not-allowed'
                             }`}
-                        title={!isOnline ? "You are offline. Please check your connection." : !productImage ? "Upload a product image to start." : !customPrompt.trim() ? "Add a Creative Direction to generate." : "Generate your creative shot"}
+                        title={!isOnline ? "You are offline. Please check your connection." : !productImage ? "Upload a product image to start." : !customPrompt.trim() ? "Auto-generate a creative concept based on your image." : "Generate your creative shot"}
                     >
                         {isLoading ? 'AI is Generating...' : 'Generate Image'}
                         {isLoading && <div className="w-6 h-6 border-2 border-t-white border-white/30 rounded-full animate-spin ml-2"></div>}
